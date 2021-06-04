@@ -8,6 +8,15 @@ from pycocotools.coco import COCO
 from matplotlib.path import Path as PathPlt
 
 
+# dict of categories
+category_dict = {0: "other_stuff", 1: "road", 2: "sidewalk", 3: "greens", 4: "other", 5: "Biker",
+                6: "Pedestrian", 7: "Skater", 8: "Cart", 9: "Car", 10: "Bus"}
+
+category_clr = {0: [0, 0, 0], 1: [128, 64, 128], 2: [130, 76, 0], 3: [107, 142, 35],
+                4: [0, 0, 0], 5: [255, 22, 96], 6: [102, 51, 0], 7: [9, 143, 150],
+                8: [119, 11, 32], 9: [112, 150, 146], 10: [48, 41, 30]}
+
+
 class VideoDataset:
     def __init__(self, data_root="/media/hdd/stanford_campus_dataset"):
         self.data_root = data_root
@@ -17,6 +26,9 @@ class VideoDataset:
 
         self.annotations = {}
         self.coco_stuff = {}
+        self.masks_stuff = {}
+        self.masks_base = {}
+        self.references = {}
 
         # 2. For each scene, get list of available videos
         for scene_name, scene in self.scenes.items():
@@ -81,6 +93,52 @@ class VideoDataset:
         anns = coco.loadAnns(annIds)
         return anns
 
+    def create_color_mask(self, scene_name, video_name, idx_frame, show=False):
+        mask_dict = {}
+        mask_base, _ = self.__check_load_mask_base(scene_name, video_name)
+        mask_dict[0] = mask_base.copy()
+
+        mask_stuff = self.__check_load_mask_stuff(scene_name, video_name)
+
+        mask_dict[1] = mask_stuff[1]
+        mask_dict[2] = mask_stuff[2]
+        mask_dict[3] = mask_stuff[3]
+        mask_dict[4] = mask_stuff[4]
+
+        ann_df = self.__check_load_annotations(scene_name, video_name)
+        mask_dict[5], _ = create_mask_from_bbox(ann_df, idx_frame, mask_base.shape, label="Biker")
+        mask_dict[6], _ = create_mask_from_bbox(ann_df, idx_frame, mask_base.shape, label="Pedestrian")
+        mask_dict[7], _ = create_mask_from_bbox(ann_df, idx_frame, mask_base.shape, label="Skater")
+        mask_dict[8], _ = create_mask_from_bbox(ann_df, idx_frame, mask_base.shape, label="Cart")
+        mask_dict[9], _ = create_mask_from_bbox(ann_df, idx_frame, mask_base.shape, label="Car")
+        mask_dict[10], _ = create_mask_from_bbox(ann_df, idx_frame, mask_base.shape, label="Bus")
+
+        mask_out = mask_base.copy()
+        mask_out = np.dstack([mask_out] * 3)
+        print(mask_out.shape)
+        for cat_id in range(1, max(list(category_dict.keys())) + 1):
+            mask_cur = mask_dict[cat_id]
+            mask_bool = mask_cur.astype(bool)
+            clr = get_clr(category_clr, cat_id)
+            mask_out[mask_bool, 0] = clr[0]
+            mask_out[mask_bool, 1] = clr[1]
+            mask_out[mask_bool, 2] = clr[2]
+        if show:
+            plt.imshow(mask_out.astype('uint8'))
+            plt.show()
+        return mask_out
+
+    def create_color_masks(self, scene_name, video_name):
+        ann_df = self.__check_load_annotations(scene_name, video_name)
+        idx_frame_min = ann_df["frame"].min()
+        idx_frame_max = ann_df["frame"].max()
+        path = Path(self.data_root) / "masks" / scene_name / video_name
+        path.mkdir(parents=True, exist_ok=False)
+        for i in range(idx_frame_min, idx_frame_max+1):
+            print(f"process frame: {i}")
+            mask = self.create_color_mask(scene_name, video_name, i, False)
+            cv2.imwrite(str(path / ("frame_" + str(i).zfill(6) + ".jpg")), mask.astype('uint8'))
+
     def __check_load_annotations(self, scene_name, video_name):
         ann_path = Path(self.data_root) / "annotations" / scene_name / video_name / "annotations.txt"
         if not ann_path.is_file:
@@ -104,13 +162,46 @@ class VideoDataset:
             self.coco_stuff[scene_name][video_name] = COCO(ann_path)
         return self.coco_stuff[scene_name][video_name]
 
+    def __check_load_mask_stuff(self, scene_name, video_name):
+        mask_base, _ = self.__check_load_mask_base(scene_name, video_name)
+        if not scene_name in self.masks_stuff:
+            self.masks_stuff[scene_name] = {}
+        if not video_name in self.masks_stuff[scene_name]:
+            self.masks_stuff[scene_name][video_name] = {}
+            anns_road = self.get_polygons(scene_name, video_name, ['road'])
+            self.masks_stuff[scene_name][video_name][1], _ = create_bin_mask_from_polygons(anns_road, mask_base,
+                                                                                           show=False)
+            anns_sidewalk = self.get_polygons(scene_name, video_name, ['sidewalk'])
+            self.masks_stuff[scene_name][video_name][2], _ = create_bin_mask_from_polygons(anns_sidewalk, mask_base,
+                                                                                           show=False)
+            anns_greens = self.get_polygons(scene_name, video_name, ['greens'])
+            self.masks_stuff[scene_name][video_name][3], _ = create_bin_mask_from_polygons(anns_greens, mask_base,
+                                                                                           show=False)
+            anns_other = self.get_polygons(scene_name, video_name, ['other'])
+            self.masks_stuff[scene_name][video_name][4], _ = create_bin_mask_from_polygons(anns_other, mask_base,
+                                                                                           show=False)
 
-def create_mask_from_polygons(annotations, mask_base, show=False):
+        return self.masks_stuff[scene_name][video_name]
+
+    def __check_load_mask_base(self, scene_name, video_name):
+        if scene_name not in self.masks_base:
+            self.masks_base[scene_name] = {}
+        if scene_name not in self.references:
+            self.references[scene_name] = {}
+        if video_name not in self.references[scene_name]:
+            path = Path(self.data_root) / "annotations" / scene_name / video_name / "reference.jpg"
+            self.references[scene_name][video_name] = cv2.imread(str(path))
+        if video_name not in self.masks_base[scene_name]:
+            self.masks_base[scene_name][video_name] = np.zeros(self.references[scene_name][video_name][:, :, 0].shape)
+        return self.masks_base[scene_name][video_name], self.references[scene_name][video_name]
+
+
+def create_bin_mask_from_polygons(annotations, mask_base, show=False):
     """ Create mask from annotations. Consider all item in annotations are the same category
         Args:
             annotations (list): list of annotation items for same category
             mask_base (np.ndarray): input mask filled with zeros
-
+            show (bool): show or not binary mask in GUI window
         Returns:
             mask_out: Returns mask, which consists of all polygons from annotations, merged into one mask
             masks: list of masks, each correspond to polygon from annotations
@@ -140,5 +231,46 @@ def create_mask_from_polygons(annotations, mask_base, show=False):
     return mask_out, masks
 
 
+def create_mask_from_bbox(df, idx_frame, mask_shape, label=None, show=False):
+    mask_out = np.zeros(mask_shape)
+    masks = []
+    if label is None:
+        data = df[df["frame"] == idx_frame].copy()
+    else:
+        data = df[(df["frame"] == idx_frame) & (df["label"] == label)].copy()
+    for index, row in data.iterrows():
+        h, w = mask_shape
+
+        ymin = row.ymin
+        xmin = row.xmin
+        ymax = row.ymax
+        xmax = row.xmax
+        points = np.array([ymin, xmin, ymax, xmin, ymax, xmax, ymin, xmax]).reshape((4, 2))
+
+        poly_path = PathPlt(points)
+
+        x, y = np.mgrid[:h, :w]
+        coors = np.hstack((x.reshape(-1, 1), y.reshape(-1, 1)))  # coors.shape is (width*height,2)
+
+        mask_new = poly_path.contains_points(coors).reshape(mask_shape)
+        mask_out = np.logical_or(mask_out, mask_new)
+        masks.append(mask_new)
+    if show:
+        plt.imshow(mask_out)
+        plt.show()
+
+    return mask_out, masks
 
 
+def get_label_id(cat_dict, label_name):
+    for k, v in cat_dict.items():
+        if v == label_name:
+            return k
+    return -1
+
+
+def get_clr(cat_clr, label_id):
+    for k, v in cat_clr.items():
+        if k == label_id:
+            return v
+    return None

@@ -2,14 +2,16 @@
 
 from pathlib import Path
 import numpy as np
-from utils import VideoDataset, create_mask_from_polygons
+from utils import VideoDataset, create_bin_mask_from_polygons
 
 # 1. load videos
 v_dataset = VideoDataset()
 print("Scenes: ".format(v_dataset.get_scenes()))
 
-scene_name = "bookstore"
-video = "video0"
+# scene_name = "bookstore"
+# video = "video0"
+scene_name = "deathCircle"
+video = "video1"
 first_frame = v_dataset.get_frame(scene_name, video)
 
 # 2. load annotations
@@ -27,6 +29,7 @@ print(f"{len(anns)} annotations for class {filter_classes} loaded")
 
 # 5. Create mask from polygons for specific category
 mask_base = np.zeros(first_frame.shape[0: 2])
-mask_out, masks = create_mask_from_polygons(anns, mask_base, True)
+mask_out, masks = create_bin_mask_from_polygons(anns, mask_base, False)
 
-
+# clr_mask = v_dataset.create_color_mask(scene_name, video, 10000, show=True)
+v_dataset.create_color_masks(scene_name, video)
