@@ -6,6 +6,8 @@ import pandas as pd
 import numpy as np
 from pycocotools.coco import COCO
 from matplotlib.path import Path as PathPlt
+from sklearn.model_selection import train_test_split
+from shutil import copy2
 
 
 # dict of categories
@@ -77,6 +79,8 @@ class VideoDataset:
     def get_polygons(self, scene_name, video_name, filter_classes):
         coco = self.__check_load_annotations_stuff(scene_name, video_name)
         catIds = coco.getCatIds(catNms=filter_classes)
+        if len(catIds) == 0:
+            return []
 
         # Get image containing the above Category IDs
         imgIds = coco.getImgIds(catIds=catIds)
@@ -91,6 +95,7 @@ class VideoDataset:
         #     plt.axis('off')
         annIds = coco.getAnnIds(imgIds=img['id'], catIds=catIds, iscrowd=None)
         anns = coco.loadAnns(annIds)
+        print(f"Number of annotations: {len(anns)}")
         return anns
 
     def create_color_mask(self, scene_name, video_name, idx_frame, show=False):
@@ -115,9 +120,10 @@ class VideoDataset:
 
         mask_out = mask_base.copy()
         mask_out = np.dstack([mask_out] * 3)
-        print(mask_out.shape)
         for cat_id in range(1, max(list(category_dict.keys())) + 1):
             mask_cur = mask_dict[cat_id]
+            # plt.imshow(mask_cur)
+            # plt.show()
             mask_bool = mask_cur.astype(bool)
             clr = get_clr(category_clr, cat_id)
             mask_out[mask_bool, 0] = clr[0]
@@ -128,16 +134,22 @@ class VideoDataset:
             plt.show()
         return mask_out
 
-    def create_color_masks(self, scene_name, video_name):
+    def show_mask(self, scene_name, video_name, category_id):
+        mask_stuff = self.__check_load_mask_stuff(scene_name, video_name)
+        plt.imshow(mask_stuff[category_id])
+        plt.show()
+
+    def create_color_masks(self, scene_name, video_name, idx_frame_from=0):
         ann_df = self.__check_load_annotations(scene_name, video_name)
         idx_frame_min = ann_df["frame"].min()
         idx_frame_max = ann_df["frame"].max()
         path = Path(self.data_root) / "masks" / scene_name / video_name
         path.mkdir(parents=True, exist_ok=False)
+        idx_frame_min = max(idx_frame_min, idx_frame_from)
         for i in range(idx_frame_min, idx_frame_max+1):
             print(f"process frame: {i}")
             mask = self.create_color_mask(scene_name, video_name, i, False)
-            cv2.imwrite(str(path / ("frame_" + str(i).zfill(6) + ".jpg")), mask.astype('uint8'))
+            cv2.imwrite(str(path / ("frame_" + str(i).zfill(6) + ".png")), mask.astype('uint8'))
 
     def __check_load_annotations(self, scene_name, video_name):
         ann_path = Path(self.data_root) / "annotations" / scene_name / video_name / "annotations.txt"
@@ -164,9 +176,9 @@ class VideoDataset:
 
     def __check_load_mask_stuff(self, scene_name, video_name):
         mask_base, _ = self.__check_load_mask_base(scene_name, video_name)
-        if not scene_name in self.masks_stuff:
+        if scene_name not in self.masks_stuff:
             self.masks_stuff[scene_name] = {}
-        if not video_name in self.masks_stuff[scene_name]:
+        if video_name not in self.masks_stuff[scene_name]:
             self.masks_stuff[scene_name][video_name] = {}
             anns_road = self.get_polygons(scene_name, video_name, ['road'])
             self.masks_stuff[scene_name][video_name][1], _ = create_bin_mask_from_polygons(anns_road, mask_base,
@@ -194,6 +206,90 @@ class VideoDataset:
         if video_name not in self.masks_base[scene_name]:
             self.masks_base[scene_name][video_name] = np.zeros(self.references[scene_name][video_name][:, :, 0].shape)
         return self.masks_base[scene_name][video_name], self.references[scene_name][video_name]
+
+    def split_dataset(self, parts_size=[0.8, 0.0, 0.2], out_path="data"):
+        """
+        Splits all dataset into train/val/test parts
+        :param
+            parts_size: [train_size, val_size, test_size]
+            out_path: output directory name, relative to self.data_root
+        :return:
+
+        """
+
+        # split every directory separately
+        # get list of all files in directory recursive
+        scenes_paths = (Path(self.data_root) / "masks").glob("./*")
+        scenes_paths = [v for v in scenes_paths]
+        for scene_path in scenes_paths:
+            # get list of videos
+            videos_paths = (Path(self.data_root) / "masks" / scene_path.name).glob("./*")
+            videos_paths = [v for v in videos_paths]
+            scene_name = scene_path.name
+
+            for video_path in videos_paths:
+                video_name = video_path.name
+                print(f"Processing scene: {scene_name}, video_name: {video_name}")
+                files = list(video_path.rglob("*.png"))
+                print(f"Number of files: {len(files)}")
+
+                train_size, val_size, test_size = parts_size
+                x_train, x_remain = train_test_split(files, test_size=(val_size + test_size))
+
+                new_test_size = np.around(test_size / (val_size + test_size), 2)
+                print(f"New test size: {new_test_size}")
+                # To preserve (new_test_size + new_val_size) = 1.0
+                new_val_size = 1.0 - new_test_size
+
+                if new_test_size == 1.0:
+                    x_val = []
+                    x_test = x_remain
+                elif new_test_size == 0.0:
+                    x_val = x_remain
+                    x_test = []
+                else:
+                    x_val, x_test = train_test_split(x_remain, test_size=new_test_size)
+                print(f"Train: {len(x_train)}, val: {len(x_val)}, test: {len(x_test)}")
+
+                out_p = Path(self.data_root) / out_path
+                out_p.mkdir(parents=True, exist_ok=True)
+
+                # train dataset
+                out_p_train = out_p / "Train"
+                (out_p_train / "Mask").mkdir(parents=True, exist_ok=True)
+                (out_p_train / "Image").mkdir(parents=True, exist_ok=True)
+                for file_p in x_train:
+
+                    frame_idx = int(file_p.stem.split("_")[1])
+                    copy2(str(file_p), str(out_p_train / "Mask" / (scene_name + "_" + video_name + "_" + file_p.name)))
+                    copy2(str(Path(self.data_root) / "frames" / scene_name / video_name /
+                                   ("frame_" + str(frame_idx+1).zfill(6) + ".jpg")),
+                          str(out_p_train / "Image" / (scene_name + "_" + video_name + "_" + file_p.stem + ".jpg")))
+                print("Finished copy train images")
+
+                # validation dataset
+                out_p_val = out_p / "Val"
+                (out_p_val / "Mask").mkdir(parents=True, exist_ok=True)
+                (out_p_val / "Image").mkdir(parents=True, exist_ok=True)
+                for file_p in x_val:
+                    frame_idx = int(file_p.stem.split("_")[1])
+                    copy2(str(file_p), str(out_p_val / "Mask" / (scene_name + "_" + video_name + "_" + file_p.name)))
+                    copy2(str(Path(self.data_root) / "frames" / scene_name / video_name /
+                                   ("frame_" + str(frame_idx+1).zfill(6) + ".jpg")),
+                          str(out_p_val / "Image" / (scene_name + "_" + video_name + "_" + file_p.stem + ".jpg")))
+                print("Finished copy validation images")
+
+                # test dataset
+                out_p_test = out_p / "Test"
+                (out_p_test / "Mask").mkdir(parents=True, exist_ok=True)
+                (out_p_test / "Image").mkdir(parents=True, exist_ok=True)
+                for file_p in x_test:
+                    frame_idx = int(file_p.stem.split("_")[1])
+                    copy2(str(file_p), str(out_p_test / "Mask" / (scene_name + "_" + video_name + "_" + file_p.name)))
+                    copy2(str(Path(self.data_root) / "frames" / scene_name / video_name /
+                                   ("frame_" + str(frame_idx + 1).zfill(6) + ".jpg")),
+                          str(out_p_test / "Image" / (scene_name + "_" + video_name + "_" + file_p.stem + ".jpg")))
+                print("Finished copy test images")
 
 
 def create_bin_mask_from_polygons(annotations, mask_base, show=False):
@@ -235,9 +331,10 @@ def create_mask_from_bbox(df, idx_frame, mask_shape, label=None, show=False):
     mask_out = np.zeros(mask_shape)
     masks = []
     if label is None:
-        data = df[df["frame"] == idx_frame].copy()
+        data = df[(df["frame"] == idx_frame) & (df["lost"] == 0) & (df["occluded"] == 0)].copy()
     else:
-        data = df[(df["frame"] == idx_frame) & (df["label"] == label)].copy()
+        data = df[(df["frame"] == idx_frame) & (df["label"] == label) & (df["lost"] == 0) & (df["occluded"] == 0)].copy()
+    # print(data)
     for index, row in data.iterrows():
         h, w = mask_shape
 
