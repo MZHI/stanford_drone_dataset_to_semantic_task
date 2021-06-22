@@ -1,0 +1,10 @@
+numpy
+pytorch
+opencv-python
+matplotlib
+subprocess
+pandas
+pycocotools
+scikit-learn
+segmentation-models-pytorch
+albumentations
