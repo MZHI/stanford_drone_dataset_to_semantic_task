@@ -9,7 +9,12 @@ image | mask
 ------|------
 ![img](/images/reference.jpg) | ![mask](/images/mask.png) 
 
-3. Merge annotations from two domains: one from original stanford dataset, and another from my labeling. The only two sequences were labeled: deathCircle->video1 and bookstore->video0. The result of merging is creating colored masks, where categories have next priority (from lowest to highest): ['other_stuff'] -> ['road'] -> ['sidewalk'] -> ['greens'] -> ['Biker'|'Pedestrian'|'Skater'|'Cart'|'Car'|'Bus']
+3. Merge annotations from two domains: one from original stanford dataset, and another from my labeling. The only two sequences were labeled: deathCircle->video1 and bookstore->video0. The result of merging is creating colored masks, where categories have next priority (from lowest to highest): ['other_stuff'] -> ['road'] -> ['sidewalk'] -> ['greens'] -> ['Biker'|'Pedestrian'|'Skater'|'Cart'|'Car'|'Bus']. Result: 
+
+image | mask 
+------|------
+![img](/images/bookstore_video0_frame_005687.jpg) | ![mask](/images/bookstore_video0_frame_005687.png) 
+
 4. Use [Segmentation models pytorch repo](https://github.com/qubvel/segmentation_models.pytorch) for study U-net network using transfer learning (using pretrained on ImageNet dataset weights)
 
 # How to use
