@@ -3,10 +3,11 @@ Task: get dataset [Stanford Drone Dataset](https://cvgl.stanford.edu/projects/ua
 
 # Stages of solution: 
 1. Background categories were selected: "road", "sidewalk", "greens", "other_stuff"
-2. For each video sequence get reference frame and label it using some tool. I used [coco annotator tool](https://github.com/jsbroks/coco-annotator) for labeling this frames and save results to coco format. Example of labeling for class `sidewalk`:
+2. For each video sequence get reference frame and label it using some tool. I used [coco annotator tool](https://github.com/jsbroks/coco-annotator) for labeling this frames and save results to coco format. Example of labeling for class `sidewalk`: 
+
 image | mask 
------------------------|-----------------
-![](/images/reference.jpg) | ![](/images/mask.png) 
+------|------
+![img](/images/reference.jpg) | ![mask](/images/mask.png) 
 
 3. Merge annotations from two domains: one from original stanford dataset, and another from my labeling. The only two sequences were labeled: deathCircle->video1 and bookstore->video0. The result of merging is creating colored masks, where categories have next priority (from lowest to highest): ['other_stuff'] -> ['road'] -> ['sidewalk'] -> ['greens'] -> ['Biker'|'Pedestrian'|'Skater'|'Cart'|'Car'|'Bus']
 4. Use [Segmentation models pytorch repo](https://github.com/qubvel/segmentation_models.pytorch) for study U-net network using transfer learning (using pretrained on ImageNet dataset weights)
