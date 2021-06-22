@@ -41,5 +41,5 @@ v_dataset.create_color_masks(scene_name, video_name, idx_frame_from=0)
 ```python
 v_dataset.split_dataset(parts_size=[0.7, 0.2, 0.1], out_path='output path')
 ```
-4. Use notebook `transfer_learning_unet.ipynb` for transfer learning
+4. Use notebook `transfer_learning_unet.ipynb` for transfer learning. This notebook based on next example from [segmentation_models.pytorch repo](https://github.com/qubvel/segmentation_models.pytorch/blob/master/examples/cars%20segmentation%20(camvid).ipynb)
 
